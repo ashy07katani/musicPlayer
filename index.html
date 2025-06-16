@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>HLS Music Player</title>
+</head>
+<body>
+  <h2>HLS Music Streaming</h2>
+  <video id="player" width="600" controls autoplay></video>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script>
+    const video = document.getElementById('player');
+    const hlsURL = 'http://localhost:8080/stream/hls/How_Do_I_Make_You_Love_Me'; // replace with your song name
+
+    if (Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(hlsURL);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play();
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // Safari fallback
+      video.src = hlsURL;
+    }
+  </script>
+</body>
+</html>
