@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"music-player/util"
 	"net/http"
 	"os"
 	"os/exec"
@@ -58,7 +60,6 @@ func StreamMusic(w http.ResponseWriter, r *http.Request) {
 }
 
 func UploadFile(w http.ResponseWriter, r *http.Request) {
-
 	file, fileheader, err := r.FormFile("musicFile")
 	//create a temporary upload folder
 	defer file.Close()
@@ -97,8 +98,20 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 	err = cmd.Run()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
-	w.Write([]byte("File uploaded and split into chunks successfully"))
+	info, err := util.ExtractMetadata(savedFilePath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	b, err := json.Marshal(info)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(b)
 }
 
 func StreamHLS(w http.ResponseWriter, r *http.Request) {

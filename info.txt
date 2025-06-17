@@ -1,0 +1,12 @@
+psql -U postgres
+
+create database musicdb;
+
+connect to the database in postgres
+\c dbname
+
+to see the list of the tables 
+\dt 
+
+to see the schema of the songs tables
+\d songs

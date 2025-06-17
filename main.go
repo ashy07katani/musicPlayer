@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	handlers "music-player/Handlers"
+	handlers "music-player/handlers"
 	"music-player/middleware"
 	"net/http"
 
