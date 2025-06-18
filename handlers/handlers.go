@@ -105,6 +105,15 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	albumArtUrl, err := util.ExtractAlbumArt(info.Format.Tags.Album)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if albumArtUrl != "" {
+		info.Format.Tags.AlbumArt = albumArtUrl
+	}
 	b, err := json.Marshal(info)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
