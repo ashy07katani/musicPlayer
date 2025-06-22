@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"music-player/model"
+	"music-player/repo"
 	"music-player/util"
 	"net/http"
 	"os"
@@ -13,9 +16,22 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/redis/go-redis/v9"
 )
 
-func StreamMusic(w http.ResponseWriter, r *http.Request) {
+type MusicHandler struct {
+	DB          *sql.DB
+	RedisClient *redis.Client
+}
+
+func NewMusicHandler(db *sql.DB, redisClient *redis.Client) *MusicHandler {
+	handler := new(MusicHandler)
+	handler.DB = db
+	handler.RedisClient = redisClient
+	return handler
+}
+
+func (h *MusicHandler) StreamMusic(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	fileName := params["filename"]
 	filePath := "C:/Users/tripa/OneDrive/Documents/MusicPlayer/" + fileName
@@ -59,7 +75,7 @@ func StreamMusic(w http.ResponseWriter, r *http.Request) {
 	fmt.Println(fileName)
 }
 
-func UploadFile(w http.ResponseWriter, r *http.Request) {
+func (h *MusicHandler) UploadFile(w http.ResponseWriter, r *http.Request) {
 	file, fileheader, err := r.FormFile("musicFile")
 	//create a temporary upload folder
 	defer file.Close()
@@ -76,43 +92,54 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Error saving file", http.StatusInternalServerError)
 		return
 	}
-	segmentTime := "5"
-	outputDir := "chunks"
-	os.MkdirAll(outputDir, os.ModePerm)
-	log.Println(fileheader.Filename, fileheader.Header, fileheader.Size)
-	filename := strings.TrimSuffix(fileheader.Filename, ".mp3")
-	segmentPattern := fmt.Sprintf("%s/%s_%%04d.ts", outputDir, filename)
-	playlistPath := fmt.Sprintf("%s/%s_playlist.m3u8", outputDir, filename)
-	cmd := exec.Command(
-		"ffmpeg",
-		"-i", savedFilePath,
-		"-acodec", "aac",
-		"-vn",
-		"-f", "hls",
-		"-hls_time", segmentTime,
-		"-hls_list_size", "0",
-		"-hls_segment_filename", segmentPattern,
-		"-hls_base_url", "/chunks/",
-		playlistPath,
-	)
-	err = cmd.Run()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	playlistPath := ""
+	go func() {
+		segmentTime := "5"
+		outputDir := "chunks"
+		os.MkdirAll(outputDir, os.ModePerm)
+		log.Println(fileheader.Filename, fileheader.Header, fileheader.Size)
+		filename := strings.TrimSuffix(fileheader.Filename, ".mp3")
+		segmentPattern := fmt.Sprintf("%s/%s_%%04d.ts", outputDir, filename)
+		playlistPath = fmt.Sprintf("%s/%s_playlist.m3u8", outputDir, filename)
+		cmd := exec.Command(
+			"ffmpeg",
+			"-i", savedFilePath,
+			"-acodec", "aac",
+			"-vn",
+			"-f", "hls",
+			"-hls_time", segmentTime,
+			"-hls_list_size", "0",
+			"-hls_segment_filename", segmentPattern,
+			"-hls_base_url", "/chunks/",
+			playlistPath,
+		)
+		err = cmd.Run()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}()
 	info, err := util.ExtractMetadata(savedFilePath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	albumArtUrl, err := util.ExtractAlbumArt(info.Format.Tags.Album)
+	albumArtUrl, err := util.ExtractAlbumArt(info.Format.Tags.Artist, info.Format.Tags.Album, h.RedisClient)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if albumArtUrl != "" {
 		info.Format.Tags.AlbumArt = albumArtUrl
+	}
+	info.Format.Tags.PlaylistPath = playlistPath
+	songEntry := model.NewSong(info)
+	fmt.Println(songEntry.Artist)
+	err = repo.InsertSongMetaData(h.DB, songEntry)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	b, err := json.Marshal(info)
 	if err != nil {
@@ -123,7 +150,7 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
-func StreamHLS(w http.ResponseWriter, r *http.Request) {
+func (h *MusicHandler) StreamHLS(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	filename := vars["filename"]
 
